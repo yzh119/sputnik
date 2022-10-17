@@ -144,6 +144,7 @@ int main(int argc, const char **argv) {
   CUDA_CHECK(cudaMalloc((void **)&C_d, sizeof(float) * M * N));
   CUDA_CHECK(cudaMalloc((void **)&csr_values_d, sizeof(float) * nnz));
   CUDA_CHECK(cudaMalloc((void **)&csr_indptr_d, sizeof(int) * (M + 1)));
+  CUDA_CHECK(cudaMalloc((void **)&row_d, sizeof(int) * nnz));
   CUDA_CHECK(cudaMalloc((void **)&csr_indices_d, sizeof(int) * nnz));
 
   CUDA_CHECK(cudaMemcpy(B_d, B_h, sizeof(float) * K * N, cudaMemcpyHostToDevice));
