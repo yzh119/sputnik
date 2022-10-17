@@ -7,3 +7,6 @@
 [submodule "third_party/benchmark"]
 	path = third_party/benchmark
 	url = https://github.com/google/benchmark.git
+[submodule "third_party/cnpy"]
+	path = third_party/cnpy
+	url = git@github.com:rogersce/cnpy.git

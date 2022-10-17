@@ -12,69 +12,228 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#include <cnpy.h>
+#include <cuda_runtime_api.h>
+
 #include "sputnik/cuda_utils.h"
 #include "sputnik/matrix_utils.h"
 #include "sputnik/sddmm/cuda_sddmm.h"
 
-#include "absl/random/random.h"
-#include "benchmark/benchmark.h"
+#define CUDA_CHECK(func)                                                       \
+  {                                                                            \
+    cudaError_t status = (func);                                               \
+    if (status != cudaSuccess) {                                               \
+      printf("CUDA API failed at line %d with error: %s (%d)\n", __LINE__,     \
+             cudaGetErrorString(status), status);                              \
+      return EXIT_FAILURE;                                                     \
+    }                                                                          \
+  }
 
-namespace sputnik {
+#define CUSPARSE_CHECK(func)                                                   \
+  {                                                                            \
+    cusparseStatus_t status = (func);                                          \
+    if (status != CUSPARSE_STATUS_SUCCESS) {                                   \
+      printf("CUSPARSE API failed at line %d with error: %s (%d)\n", __LINE__, \
+             cusparseGetErrorString(status), status);                          \
+      exit(EXIT_FAILURE);                                                      \
+    }                                                                          \
+  }
 
-void ReportThroughput(benchmark::State& state) {
-  state.SetBytesProcessed(
-      static_cast<int64_t>(state.iterations()) *
-      state.range(3) * state.range(1) * 2);
+void read_npz_file(const std::string &filename, int &M, int &K, int &NNZ, std::vector<int> &indptr,
+                   std::vector<int> &indices) {
+  cnpy::npz_t data = cnpy::npz_load(filename);
+  cnpy::NpyArray shape = data["shape"];
+  int *shape_data = shape.data<int>();
+  M = shape_data[0];
+  K = shape_data[1];
+  NNZ = shape_data[2];
+  indptr = std::move(data["indptr"].as_vec<int>());
+  indices = std::move(data["indices"].as_vec<int>());
 }
-  
-void BenchmarkArgs(benchmark::internal::Benchmark* b) {
-  std::vector<int> dims = {512, 1024, 2048, 4096, 8192};
-  std::vector<float> sparsities = {.25f, .2f, .15f, .1f, .05f};
 
-  for (const auto& d : dims) {
-    for (const auto& s : sparsities) {
-      b->Args({d, d, d, static_cast<int>(d * d * s)});
+struct GpuTimer {
+  cudaEvent_t startEvent;
+  cudaEvent_t stopEvent;
+
+  GpuTimer() {
+    cudaEventCreate(&startEvent);
+    cudaEventCreate(&stopEvent);
+  }
+
+  ~GpuTimer() {
+    cudaEventDestroy(startEvent);
+    cudaEventDestroy(stopEvent);
+  }
+
+  void start() { cudaEventRecord(startEvent, 0); }
+
+  void stop() {
+    cudaEventRecord(stopEvent, 0);
+    cudaEventSynchronize(stopEvent);
+  }
+
+  float elapsed_msecs() {
+    float elapsed;
+    cudaEventElapsedTime(&elapsed, startEvent, stopEvent);
+    return elapsed;
+  }
+};
+
+
+// Fill a host array with random numbers.
+void fill_random(float array[], int size) {
+  for (int i = 0; i < size; i++) {
+    array[i] = (float)(std::rand() % 3) / 10;
+  }
+}
+
+// Compute sddmm correct numbers. All arrays are host memory locations.
+template <typename Index, typename DType>
+void sddmm_reference_host(
+    int M,   // number of S-rows, S is the sparse matrix
+    int N,   // number of S_cols
+    int K, // number of A columns
+    int nnz,  // number of nonzeros in S
+
+    const Index *csr_indptr, const Index *csr_indices,
+    const DType *csr_values, // three arrays of the sparse matrix's CSR format
+    const DType *A,          // assume row-major
+    const DType *B,          // assume row-major, assume transposed
+    DType *C_ref)            // assume row-major
+{
+  for (int i = 0; i < M; i++) {
+    Index lb = csr_indptr[i];
+    Index hb = csr_indptr[i + 1];
+    Index offset1, offset2;
+    DType acc = 0;
+    for (int ptr = lb; ptr < hb; ptr++) {
+      offset1 = i * K;
+      offset2 = csr_indices[ptr] * K;
+      for (int k = 0; k < K; k++) {
+        acc += A[k + offset1] * B[k + offset2];
+      }
+      C_ref[ptr] = acc * csr_values[ptr];
+      acc = 0;
     }
   }
 }
 
-void BM_CudaSddmm_GenericFloat(benchmark::State& state) {
-  const int kDimM = state.range(0);
-  const int kDimK = state.range(1);
-  const int kDimN = state.range(2);
-  const int kNonZeros = state.range(3);
+int main(int argc, char *argv[]) {
+  // check command-line argument
 
-  const int kRowPadding = 0;
-
-  // Create the sparse matrix on the gpu.
-  absl::BitGen generator;
-  CudaSparseMatrix<float> output_matrix(kDimM, kDimN, kNonZeros, RANDOM_UNIFORM,
-                                        &generator, SORTED, kRowPadding);
-
-  // Create the dense matrix on the gpu.
-  CudaMatrix<float> lhs_matrix(kDimM, kDimK, &generator);
-  CudaMatrix<float> rhs_matrix(kDimN, kDimK, &generator);
-
-  int batch_size = 10;
-  while (state.KeepRunningBatch(batch_size)) {
-    for (int i = 0; i < batch_size; ++i) {
-      CUDA_CALL(CudaSddmm(
-          output_matrix.Rows(),
-          lhs_matrix.Columns(),
-          output_matrix.Columns(),
-          output_matrix.NumElementsWithPadding(),
-          output_matrix.RowIndices(),
-          output_matrix.RowOffsets(),
-          output_matrix.ColumnIndices(),
-          lhs_matrix.Values(),
-          rhs_matrix.Values(),
-          output_matrix.Values(), 0));
-    }
-    CUDA_CALL(cudaStreamSynchronize(nullptr));
+  if (argc < 2) {
+    printf(
+        "Require command-line argument: name of the sparse matrix file in "
+        ".mtx format.\n");
+    return EXIT_FAILURE;
   }
-  ReportThroughput(state);
+
+  //
+  // Load sparse matrix
+  //
+
+  int M;                               // number of S-rows
+  int N;                               // number of S-columns
+  int nnz;                             // number of non-zeros in S
+  std::vector<int> csr_indptr_buffer;  // buffer for indptr array in CSR format
+  std::vector<int> row_buffer;
+  std::vector<int> csr_indices_buffer;  // buffer for indices (column-ids) array in CSR format
+  // load sparse matrix from mtx file
+  // read_mtx_file(argv[1], M, N, nnz, csr_indptr_buffer, csr_indices_buffer);
+  read_npz_file(argv[1], M, N, nnz, csr_indptr_buffer, csr_indices_buffer);
+  int row = 0;
+  for (int i = 0; i < csr_indptr_buffer.size() - 1; ++i) {
+    for (int j = 0; j < csr_indptr_buffer[i + 1] - csr_indptr_buffer[i]; ++j) {
+      row_buffer.push_back(row);
+    }
+    row++;
+  }
+
+  printf(
+      "Finish reading matrix %d rows, %d columns, %d nnz. \nIgnore original "
+      "values and use randomly generated values.\n",
+      M, N, nnz);
+
+  // Create GPU arrays
+  int K = 128;  // number of A-columns
+  if (argc > 2) {
+    K = atoi(argv[2]);
+  }
+  assert(K > 0 && "second command-line argument is number of B columns, should be >0.\n");
+
+  float *A_h = NULL, *B_h = NULL, *C_h = NULL, *csr_values_h = NULL, *C_ref = NULL;
+  float *A_d = NULL, *B_d = NULL, *C_d = NULL, *csr_values_d = NULL;
+  int *csr_indptr_d = NULL, *csr_indices_d = NULL, *row_d = NULL;
+  A_h = (float *)malloc(sizeof(float) * M * K);
+  B_h = (float *)malloc(sizeof(float) * N * K);
+  C_h = (float *)malloc(sizeof(float) * nnz);
+  C_ref = (float *)malloc(sizeof(float) * nnz);
+  csr_values_h = (float *)malloc(sizeof(float) * nnz);
+  if (!A_h || !B_h || !C_h || !C_ref || !csr_values_h) {
+    printf("Host allocation failed.\n");
+    return EXIT_FAILURE;
+  }
+  fill_random(csr_values_h, nnz);
+  fill_random(A_h, M * K);
+  fill_random(B_h, N * K);
+  // cpu validate
+  printf("csr_indptr_buffer %d\n", csr_indptr_buffer[2]);
+  sddmm_reference_host<int, float>(M, N, K, nnz, csr_indptr_buffer.data(),
+                                   csr_indices_buffer.data(), csr_values_h, A_h, B_h, C_ref);
+  cudaDeviceReset();
+  cudaSetDevice(0);
+  // allocate device memory
+  CUDA_CHECK(cudaMalloc((void **)&A_d, sizeof(float) * M * K));
+  CUDA_CHECK(cudaMalloc((void **)&B_d, sizeof(float) * N * K));
+  CUDA_CHECK(cudaMalloc((void **)&C_d, sizeof(float) * nnz));
+  CUDA_CHECK(cudaMalloc((void **)&csr_values_d, sizeof(float) * nnz));
+  CUDA_CHECK(cudaMalloc((void **)&csr_indptr_d, sizeof(int) * (M + 1)));
+  CUDA_CHECK(cudaMalloc((void **)&row_d, sizeof(int) * nnz));
+  CUDA_CHECK(cudaMalloc((void **)&csr_indices_d, sizeof(int) * nnz));
+
+  CUDA_CHECK(cudaMemcpy(A_d, A_h, sizeof(float) * M * K, cudaMemcpyHostToDevice));
+  CUDA_CHECK(cudaMemcpy(B_d, B_h, sizeof(float) * N * K, cudaMemcpyHostToDevice));
+  CUDA_CHECK(cudaMemset(C_d, 0x0, sizeof(float) * nnz));
+  CUDA_CHECK(cudaMemcpy(csr_values_d, csr_values_h, sizeof(float) * nnz, cudaMemcpyHostToDevice));
+  CUDA_CHECK(cudaMemcpy(csr_indptr_d, csr_indptr_buffer.data(), sizeof(int) * (M + 1),
+                        cudaMemcpyHostToDevice));
+  CUDA_CHECK(cudaMemcpy(row_d, row_buffer.data(), sizeof(int) * nnz, cudaMemcpyHostToDevice));
+  CUDA_CHECK(cudaMemcpy(csr_indices_d, csr_indices_buffer.data(), sizeof(int) * nnz,
+                        cudaMemcpyHostToDevice));
+
+  GpuTimer gpu_timer;
+  int warmup_iter = 10;
+  int repeat_iter = 100;
+  for (int iter = 0; iter < warmup_iter + repeat_iter; iter++) {
+    if (iter == warmup_iter) {
+      gpu_timer.start();
+    }
+    sputnik::CudaSddmm(M, K, N, nnz, row_d, csr_indptr_d, csr_indices_d, A_d, B_d, C_d, 0);
+    gpu_timer.stop();
+    float kernel_dur_msecs = gpu_timer.elapsed_msecs() / repeat_iter;
+    float MFlop_count = (float)nnz / 1e6 * K * 2;
+    float gflops = MFlop_count / kernel_dur_msecs;
+    printf(
+        "[Sputnik] Report: sddmm (A(%d x %d) * B^T(%d x %d)) odot S(%d x %d) "
+        "sparsity "
+        "%f (nnz=%d) \n Time %f (ms), Throughput %f (gflops).\n",
+        M, K, N, K, M, N, (float)nnz / M / N, nnz, kernel_dur_msecs, gflops);
+  }
+
+  /// free memory
+
+  if (A_h) free(A_h);
+  if (B_h) free(B_h);
+  if (C_h) free(C_h);
+  if (C_ref) free(C_ref);
+  if (csr_values_h) free(csr_values_h);
+  if (A_d) CUDA_CHECK(cudaFree(A_d));
+  if (B_d) CUDA_CHECK(cudaFree(B_d));
+  if (C_d) CUDA_CHECK(cudaFree(C_d));
+  if (csr_values_d) CUDA_CHECK(cudaFree(csr_values_d));
+  if (row_d) CUDA_CHECK(cudaFree(row_d));
+  if (csr_indptr_d) CUDA_CHECK(cudaFree(csr_indptr_d));
+  if (csr_indices_d) CUDA_CHECK(cudaFree(csr_indices_d));
+
+  return 0;
 }
-
-BENCHMARK(BM_CudaSddmm_GenericFloat)->Apply(BenchmarkArgs)->UseRealTime();
-
-}  // namespace sputnik

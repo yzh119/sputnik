@@ -26,6 +26,8 @@ endif()
 
 if (BUILD_BENCHMARK)
   # Google Benchmark.
+  add_subdirectory(third_party/cnpy)
+
   add_subdirectory(third_party/benchmark)
   set(BENCHMARK_ENABLE_TESTING OFF CACHE INTERNAL "Build benchmark test suite.")
   include_directories(SYSTEM ${PROJECT_SOURCE_DIR}/third_party/benchmark/include)

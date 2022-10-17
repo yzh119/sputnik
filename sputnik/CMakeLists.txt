@@ -51,7 +51,7 @@ endforeach(FILE)
 list(APPEND SPUTNIK_SRCS ${DIR_SRCS})
 
 # Set .cu.cc files to be compiled as CUDA.
-set(SPUTNIK_CUDA_SRCS ${SPUTNIK_SRCS})
+set(SPUTNIK_CUDA_SRCS ${SPUTNIK_SRCS}le)
 list(FILTER SPUTNIK_CUDA_SRCS INCLUDE REGEX "\.cu\.cc")
 set_source_files_properties(${SPUTNIK_CUDA_SRCS} PROPERTIES LANGUAGE CUDA)
 
@@ -128,7 +128,7 @@ if (BUILD_BENCHMARK)
   list(FILTER SPUTNIK_SPMM_BENCHMARK_CUDA_SRCS INCLUDE REGEX "\.cu\.cc")
   set_source_files_properties(${SPUTNIK_SPMM_BENCHMARK_CUDA_SRCS} PROPERTIES LANGUAGE CUDA)  
   add_executable(spmm_benchmark ${SPUTNIK_SPMM_BENCHMARK_SRCS})
-  target_link_libraries(spmm_benchmark sputnik ${SPUTNIK_BENCHMARK_LIBS})
+  target_link_libraries(spmm_benchmark sputnik ${SPUTNIK_BENCHMARK_LIBS} cnpy)
 
   # SDDMM benchmark build.
   list(APPEND SPUTNIK_SDDMM_BENCHMARK_SRCS ${SPUTNIK_BENCHMARK_SRCS})
@@ -137,7 +137,7 @@ if (BUILD_BENCHMARK)
   list(FILTER SPUTNIK_SDDMM_BENCHMARK_CUDA_SRCS INCLUDE REGEX "\.cu\.cc")
   set_source_files_properties(${SPUTNIK_SDDMM_BENCHMARK_CUDA_SRCS} PROPERTIES LANGUAGE CUDA)  
   add_executable(sddmm_benchmark ${SPUTNIK_SDDMM_BENCHMARK_SRCS})
-  target_link_libraries(sddmm_benchmark sputnik ${SPUTNIK_BENCHMARK_LIBS})
+  target_link_libraries(sddmm_benchmark sputnik ${SPUTNIK_BENCHMARK_LIBS} cnpy)
 
   # Depthwise benchmark build.
   list(APPEND SPUTNIK_DEPTHWISE_BENCHMARK_SRCS ${SPUTNIK_BENCHMARK_SRCS})
