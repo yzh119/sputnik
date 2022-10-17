@@ -163,7 +163,8 @@ int main(int argc, const char **argv) {
     if (iter == warmup_iter) {
       gpu_timer.start();
     }
-    sputnik::CudaSpmm(M, K, N, nnz, row_d, csr_values_d, csr_indptr_d, csr_indices_d, B_d, C_d, 0);
+    CUDA_CALL(sputnik::CudaSpmm(M, K, N, nnz, row_d, csr_values_d, csr_indptr_d, csr_indices_d, B_d,
+                                C_d, 0));
 
     gpu_timer.stop();
     float kernel_dur_msecs = gpu_timer.elapsed_msecs() / repeat_iter;

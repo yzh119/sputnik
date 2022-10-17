@@ -19,14 +19,14 @@
 #include "sputnik/matrix_utils.h"
 #include "sputnik/sddmm/cuda_sddmm.h"
 
-#define CUDA_CHECK(func)                                                       \
-  {                                                                            \
-    cudaError_t status = (func);                                               \
-    if (status != cudaSuccess) {                                               \
-      printf("CUDA API failed at line %d with error: %s (%d)\n", __LINE__,     \
-             cudaGetErrorString(status), status);                              \
-      return EXIT_FAILURE;                                                     \
-    }                                                                          \
+#define CUDA_CHECK(func)                                                   \
+  {                                                                        \
+    cudaError_t status = (func);                                           \
+    if (status != cudaSuccess) {                                           \
+      printf("CUDA API failed at line %d with error: %s (%d)\n", __LINE__, \
+             cudaGetErrorString(status), status);                          \
+      return EXIT_FAILURE;                                                 \
+    }                                                                      \
   }
 
 #define CUSPARSE_CHECK(func)                                                   \
@@ -79,7 +79,6 @@ struct GpuTimer {
   }
 };
 
-
 // Fill a host array with random numbers.
 void fill_random(float array[], int size) {
   for (int i = 0; i < size; i++) {
@@ -90,16 +89,16 @@ void fill_random(float array[], int size) {
 // Compute sddmm correct numbers. All arrays are host memory locations.
 template <typename Index, typename DType>
 void sddmm_reference_host(
-    int M,   // number of S-rows, S is the sparse matrix
-    int N,   // number of S_cols
-    int K, // number of A columns
+    int M,    // number of S-rows, S is the sparse matrix
+    int N,    // number of S_cols
+    int K,    // number of A columns
     int nnz,  // number of nonzeros in S
 
     const Index *csr_indptr, const Index *csr_indices,
-    const DType *csr_values, // three arrays of the sparse matrix's CSR format
-    const DType *A,          // assume row-major
-    const DType *B,          // assume row-major, assume transposed
-    DType *C_ref)            // assume row-major
+    const DType *csr_values,  // three arrays of the sparse matrix's CSR format
+    const DType *A,           // assume row-major
+    const DType *B,           // assume row-major, assume transposed
+    DType *C_ref)             // assume row-major
 {
   for (int i = 0; i < M; i++) {
     Index lb = csr_indptr[i];
@@ -208,7 +207,8 @@ int main(int argc, char *argv[]) {
     if (iter == warmup_iter) {
       gpu_timer.start();
     }
-    sputnik::CudaSddmm(M, K, N, nnz, row_d, csr_indptr_d, csr_indices_d, A_d, B_d, C_d, 0);
+    CUDA_CALL(
+        sputnik::CudaSddmm(M, K, N, nnz, row_d, csr_indptr_d, csr_indices_d, A_d, B_d, C_d, 0));
     gpu_timer.stop();
     float kernel_dur_msecs = gpu_timer.elapsed_msecs() / repeat_iter;
     float MFlop_count = (float)nnz / 1e6 * K * 2;
