@@ -175,10 +175,7 @@ int main(int argc, char *argv[]) {
   fill_random(csr_values_h, nnz);
   fill_random(A_h, M * K);
   fill_random(B_h, N * K);
-  // cpu validate
-  printf("csr_indptr_buffer %d\n", csr_indptr_buffer[2]);
-  sddmm_reference_host<int, float>(M, N, K, nnz, csr_indptr_buffer.data(),
-                                   csr_indices_buffer.data(), csr_values_h, A_h, B_h, C_ref);
+
   cudaDeviceReset();
   cudaSetDevice(0);
   // allocate device memory
