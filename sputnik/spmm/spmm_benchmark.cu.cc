@@ -168,13 +168,13 @@ int main(int argc, const char **argv) {
   }
   gpu_timer.stop();
   float kernel_dur_msecs = gpu_timer.elapsed_msecs() / repeat_iter;
-  float MFlop_count = (float)nnz / 1e6 * K * 2;
+  float MFlop_count = (float)nnz / 1e6 * N * 2;
   float gflops = MFlop_count / kernel_dur_msecs;
   printf(
       "[Sputnik] Report: spmm (A(%d x %d) * B(%d x %d))"
       "sparsity "
       "%f (nnz=%d) \n Time %f (ms), Throughput %f (gflops).\n",
-      M, K, K, N, (float)nnz / (float)M / (float)N, nnz, kernel_dur_msecs, gflops);
+      M, K, K, N, (float)nnz / (float)M / (float)K, nnz, kernel_dur_msecs, gflops);
 
   /// free memory
 
