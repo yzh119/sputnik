@@ -209,6 +209,7 @@ int main(int argc, char *argv[]) {
     }
     CUDA_CALL(
         sputnik::CudaSddmm(M, K, N, nnz, row_d, csr_indptr_d, csr_indices_d, A_d, B_d, C_d, 0));
+  }
     gpu_timer.stop();
     float kernel_dur_msecs = gpu_timer.elapsed_msecs() / repeat_iter;
     float MFlop_count = (float)nnz / 1e6 * K * 2;
@@ -217,8 +218,7 @@ int main(int argc, char *argv[]) {
         "[Sputnik] Report: sddmm (A(%d x %d) * B^T(%d x %d)) odot S(%d x %d) "
         "sparsity "
         "%f (nnz=%d) \n Time %f (ms), Throughput %f (gflops).\n",
-        M, K, N, K, M, N, (float)nnz / M / N, nnz, kernel_dur_msecs, gflops);
-  }
+        M, K, N, K, M, N, (float)nnz / (float)M / (float)N, nnz, kernel_dur_msecs, gflops);
 
   /// free memory
 
