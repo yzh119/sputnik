@@ -192,7 +192,7 @@ int main(int argc, const char **argv) {
 
   CUDA_CHECK(cudaMemcpy(B_d, B_h, sizeof(float) * K * N, cudaMemcpyHostToDevice));
   CUDA_CHECK(cudaMemset(C_d, 0x0, sizeof(float) * M * N));
-  CUDA_CHECK(cudaMemcpy(row_indices_d, row_indices_buffer.data(), sizeof(int) * nnz,
+  CUDA_CHECK(cudaMemcpy(row_indices_d, row_indices_buffer.data(), sizeof(int) * M,
                         cudaMemcpyHostToDevice));
   CUDA_CHECK(cudaMemcpy(csr_values_d, csr_values_h, sizeof(float) * nnz, cudaMemcpyHostToDevice));
   CUDA_CHECK(cudaMemcpy(csr_indptr_d, csr_indptr_buffer.data(), sizeof(int) * (M + 1),
