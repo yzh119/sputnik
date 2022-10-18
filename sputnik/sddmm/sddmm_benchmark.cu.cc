@@ -220,10 +220,10 @@ int main(int argc, char *argv[]) {
   // check result
   CUDA_CALL(sputnik::CudaSddmm(M, K, N, nnz, row_indices_d, csr_indptr_d, csr_indices_d, A_d, B_d,
                                C_d, 0));
-  CUDA_CHECK(cudaMemcpy(csr_values_h, csr_values_d, nnz * sizeof(float), cudaMemcpyDeviceToHost));
+  CUDA_CHECK(cudaMemcpy(C_h, C_d, nnz * sizeof(float), cudaMemcpyDeviceToHost));
   sddmm_reference_host<int, float>(M, N, K, nnz, csr_indptr_buffer.data(),
                                    csr_indices_buffer.data(), csr_values_h, A_h, B_h, C_ref);
-  bool correct = check_result<float>(nnz, 1, csr_values_h, C_ref);
+  bool correct = check_result<float>(nnz, 1, C_h, C_ref);
 
   // benchmark
   GpuTimer gpu_timer;
