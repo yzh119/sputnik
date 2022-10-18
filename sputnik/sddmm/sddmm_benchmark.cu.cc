@@ -123,18 +123,16 @@ void sddmm_reference_host(
   }
 }
 
-// Compare two MxN matrices
+// Compare two nnz matrices
 template <typename DType>
-bool check_result(int M, int N, DType *C, DType *C_ref) {
+bool check_result(int nnz, DType *C, DType *C_ref) {
   bool passed = true;
-  for (int64_t i = 0; i < M; i++) {
-    for (int64_t j = 0; j < N; j++) {
-      DType c = C[i * N + j];
-      DType c_ref = C_ref[i * N + j];
-      if (fabs(c - c_ref) > 1e-2 * fabs(c_ref)) {
-        printf("Wrong result: i = %ld, j = %ld, result = %lf, reference = %lf.\n", i, j, c, c_ref);
-        passed = false;
-      }
+  for (int64_t i = 0; i < nnz; i++) {
+    DType c = C[i];
+    DType c_ref = C_ref[i];
+    if (fabs(c - c_ref) > 1e-2 * fabs(c_ref)) {
+      printf("Wrong result: eid = %ld, result = %lf, reference = %lf.\n", i, c, c_ref);
+      passed = false;
     }
   }
   return passed;
@@ -191,7 +189,7 @@ int main(int argc, char *argv[]) {
     printf("Host allocation failed.\n");
     return EXIT_FAILURE;
   }
-  fill_random(csr_values_h, nnz);
+  fill_zero(csr_values_h, nnz);
   fill_random(A_h, M * K);
   fill_random(B_h, N * K);
 
@@ -223,7 +221,7 @@ int main(int argc, char *argv[]) {
   CUDA_CHECK(cudaMemcpy(C_h, C_d, nnz * sizeof(float), cudaMemcpyDeviceToHost));
   sddmm_reference_host<int, float>(M, N, K, nnz, csr_indptr_buffer.data(),
                                    csr_indices_buffer.data(), csr_values_h, A_h, B_h, C_ref);
-  bool correct = check_result<float>(nnz, 1, C_h, C_ref);
+  bool correct = check_result<float>(nnz, C_h, C_ref);
 
   // benchmark
   GpuTimer gpu_timer;
