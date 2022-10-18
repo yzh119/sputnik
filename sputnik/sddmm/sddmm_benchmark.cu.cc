@@ -101,7 +101,6 @@ void sddmm_reference_host(
     int nnz,  // number of nonzeros in S
 
     const Index *csr_indptr, const Index *csr_indices,
-    const DType *csr_values,  // three arrays of the sparse matrix's CSR format
     const DType *A,           // assume row-major
     const DType *B,           // assume row-major, assume transposed
     DType *C_ref)             // assume row-major
@@ -117,7 +116,7 @@ void sddmm_reference_host(
       for (int k = 0; k < K; k++) {
         acc += A[k + offset1] * B[k + offset2];
       }
-      C_ref[ptr] = acc * csr_values[ptr];
+      C_ref[ptr] = acc;
       acc = 0;
     }
   }
@@ -177,19 +176,17 @@ int main(int argc, char *argv[]) {
   }
   assert(K > 0 && "second command-line argument is number of B columns, should be >0.\n");
 
-  float *A_h = NULL, *B_h = NULL, *C_h = NULL, *csr_values_h = NULL, *C_ref = NULL;
-  float *A_d = NULL, *B_d = NULL, *C_d = NULL, *csr_values_d = NULL;
+  float *A_h = NULL, *B_h = NULL, *C_h = NULL, *C_ref = NULL;
+  float *A_d = NULL, *B_d = NULL, *C_d = NULL;
   int *csr_indptr_d = NULL, *csr_indices_d = NULL, *row_indices_d = NULL;
   A_h = (float *)malloc(sizeof(float) * M * K);
   B_h = (float *)malloc(sizeof(float) * N * K);
   C_h = (float *)malloc(sizeof(float) * nnz);
   C_ref = (float *)malloc(sizeof(float) * nnz);
-  csr_values_h = (float *)malloc(sizeof(float) * nnz);
-  if (!A_h || !B_h || !C_h || !C_ref || !csr_values_h) {
+  if (!A_h || !B_h || !C_h || !C_ref) {
     printf("Host allocation failed.\n");
     return EXIT_FAILURE;
   }
-  fill_zero(csr_values_h, nnz);
   fill_random(A_h, M * K);
   fill_random(B_h, N * K);
 
@@ -199,7 +196,6 @@ int main(int argc, char *argv[]) {
   CUDA_CHECK(cudaMalloc((void **)&A_d, sizeof(float) * M * K));
   CUDA_CHECK(cudaMalloc((void **)&B_d, sizeof(float) * N * K));
   CUDA_CHECK(cudaMalloc((void **)&C_d, sizeof(float) * nnz));
-  CUDA_CHECK(cudaMalloc((void **)&csr_values_d, sizeof(float) * nnz));
   CUDA_CHECK(cudaMalloc((void **)&csr_indptr_d, sizeof(int) * (M + 1)));
   CUDA_CHECK(cudaMalloc((void **)&row_indices_d, sizeof(int) * M));
   CUDA_CHECK(cudaMalloc((void **)&csr_indices_d, sizeof(int) * nnz));
@@ -207,7 +203,6 @@ int main(int argc, char *argv[]) {
   CUDA_CHECK(cudaMemcpy(A_d, A_h, sizeof(float) * M * K, cudaMemcpyHostToDevice));
   CUDA_CHECK(cudaMemcpy(B_d, B_h, sizeof(float) * N * K, cudaMemcpyHostToDevice));
   CUDA_CHECK(cudaMemset(C_d, 0x0, sizeof(float) * nnz));
-  CUDA_CHECK(cudaMemcpy(csr_values_d, csr_values_h, sizeof(float) * nnz, cudaMemcpyHostToDevice));
   CUDA_CHECK(cudaMemcpy(csr_indptr_d, csr_indptr_buffer.data(), sizeof(int) * (M + 1),
                         cudaMemcpyHostToDevice));
   CUDA_CHECK(cudaMemcpy(row_indices_d, row_indices_buffer.data(), sizeof(int) * M,
@@ -220,7 +215,7 @@ int main(int argc, char *argv[]) {
                                C_d, 0));
   CUDA_CHECK(cudaMemcpy(C_h, C_d, nnz * sizeof(float), cudaMemcpyDeviceToHost));
   sddmm_reference_host<int, float>(M, N, K, nnz, csr_indptr_buffer.data(),
-                                   csr_indices_buffer.data(), csr_values_h, A_h, B_h, C_ref);
+                                   csr_indices_buffer.data(), A_h, B_h, C_ref);
   bool correct = check_result<float>(nnz, C_h, C_ref);
 
   // benchmark
@@ -250,11 +245,9 @@ int main(int argc, char *argv[]) {
   if (B_h) free(B_h);
   if (C_h) free(C_h);
   if (C_ref) free(C_ref);
-  if (csr_values_h) free(csr_values_h);
   if (A_d) CUDA_CHECK(cudaFree(A_d));
   if (B_d) CUDA_CHECK(cudaFree(B_d));
   if (C_d) CUDA_CHECK(cudaFree(C_d));
-  if (csr_values_d) CUDA_CHECK(cudaFree(csr_values_d));
   if (row_indices_d) CUDA_CHECK(cudaFree(row_indices_d));
   if (csr_indptr_d) CUDA_CHECK(cudaFree(csr_indptr_d));
   if (csr_indices_d) CUDA_CHECK(cudaFree(csr_indices_d));
