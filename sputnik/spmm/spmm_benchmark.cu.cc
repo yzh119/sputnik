@@ -74,11 +74,58 @@ struct GpuTimer {
   }
 };
 
+// Fill a host array with all 0
+template <typename DType>
+void fill_zero(DType array[], int size) {
+  memset(array, 0x0, sizeof(array[0]) * size);
+}
+
+// Compute spmm correct numbers. All arrays are host memory locations.
+template <typename Index, typename DType>
+void spmm_reference_host(int M,  // number of A-rows
+                         int N,  // number of B_columns
+                         int K,  // number of A columns
+                         const Index *csr_indptr, const int *csr_indices,
+                         const DType *csr_values,  // three arrays of A's CSR format
+                         const DType *B,           // assume row-major
+                         DType *C_ref)             // assume row-major
+{
+  fill_zero(C_ref, M * N);
+  for (int64_t i = 0; i < M; i++) {
+    Index begin = csr_indptr[i];
+    Index end = csr_indptr[i + 1];
+    for (Index p = begin; p < end; p++) {
+      int k = csr_indices[p];
+      DType val = csr_values[p];
+      for (int64_t j = 0; j < N; j++) {
+        C_ref[i * N + j] += val * B[k * N + j];
+      }
+    }
+  }
+}
+
 // Fill a host array with random numbers.
 void fill_random(float array[], int size) {
   for (int i = 0; i < size; i++) {
     array[i] = (float)(std::rand() % 3) / 10;
   }
+}
+
+// Compare two MxN matrices
+template <typename DType>
+bool check_result(int M, int N, DType *C, DType *C_ref) {
+  bool passed = true;
+  for (int64_t i = 0; i < M; i++) {
+    for (int64_t j = 0; j < N; j++) {
+      DType c = C[i * N + j];
+      DType c_ref = C_ref[i * N + j];
+      if (fabs(c - c_ref) > 1e-2 * fabs(c_ref)) {
+        printf("Wrong result: i = %ld, j = %ld, result = %lf, reference = %lf.\n", i, j, c, c_ref);
+        passed = false;
+      }
+    }
+  }
+  return passed;
 }
 
 int main(int argc, const char **argv) {
@@ -155,7 +202,16 @@ int main(int argc, const char **argv) {
                         cudaMemcpyHostToDevice));
   CUDA_CHECK(cudaMemcpy(csr_indices_d, csr_indices_buffer.data(), sizeof(int) * nnz,
                         cudaMemcpyHostToDevice));
+  // check result
+  CUDA_CALL(sputnik::CudaSpmm(M, K, N, nnz, row_d, csr_values_d, csr_indptr_d, csr_indices_d, B_d,
+                              C_d, 0));
+  CUDA_CHECK(cudaMemcpy(C_h, C_d, sizeof(float) * M * N, cudaMemcpyDeviceToHost));
+  spmm_reference_host<int, float>(M, N, K, csr_indptr_buffer.data(), csr_indices_buffer.data(),
+                                  csr_values_h, B_h, C_ref);
 
+  bool correct = check_result<float>(M, N, C_h, C_ref);
+
+  // benchmark
   GpuTimer gpu_timer;
   int warmup_iter = 10;
   int repeat_iter = 100;

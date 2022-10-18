@@ -86,6 +86,12 @@ void fill_random(float array[], int size) {
   }
 }
 
+// Fill a host array with all 0
+template <typename DType>
+void fill_zero(DType array[], int size) {
+  memset(array, 0x0, sizeof(array[0]) * size);
+}
+
 // Compute sddmm correct numbers. All arrays are host memory locations.
 template <typename Index, typename DType>
 void sddmm_reference_host(
@@ -115,6 +121,23 @@ void sddmm_reference_host(
       acc = 0;
     }
   }
+}
+
+// Compare two MxN matrices
+template <typename DType>
+bool check_result(int M, int N, DType *C, DType *C_ref) {
+  bool passed = true;
+  for (int64_t i = 0; i < M; i++) {
+    for (int64_t j = 0; j < N; j++) {
+      DType c = C[i * N + j];
+      DType c_ref = C_ref[i * N + j];
+      if (fabs(c - c_ref) > 1e-2 * fabs(c_ref)) {
+        printf("Wrong result: i = %ld, j = %ld, result = %lf, reference = %lf.\n", i, j, c, c_ref);
+        passed = false;
+      }
+    }
+  }
+  return passed;
 }
 
 int main(int argc, char *argv[]) {
@@ -197,6 +220,14 @@ int main(int argc, char *argv[]) {
   CUDA_CHECK(cudaMemcpy(csr_indices_d, csr_indices_buffer.data(), sizeof(int) * nnz,
                         cudaMemcpyHostToDevice));
 
+  // check result
+  CUDA_CALL(sputnik::CudaSddmm(M, K, N, nnz, row_d, csr_indptr_d, csr_indices_d, A_d, B_d, C_d, 0));
+  CUDA_CHECK(cudaMemcpy(csr_values_h, csr_values_d, nnz * sizeof(float), cudaMemcpyDeviceToHost));
+  sddmm_reference_host<int, float>(M, N, K, nnz, csr_indptr_buffer.data(),
+                                   csr_indices_buffer.data(), csr_values_h, A_h, B_h, C_ref);
+  bool correct = check_result<float>(nnz, 1, csr_values_h, C_ref);
+
+  // benchmark
   GpuTimer gpu_timer;
   int warmup_iter = 10;
   int repeat_iter = 100;
@@ -207,15 +238,15 @@ int main(int argc, char *argv[]) {
     CUDA_CALL(
         sputnik::CudaSddmm(M, K, N, nnz, row_d, csr_indptr_d, csr_indices_d, A_d, B_d, C_d, 0));
   }
-    gpu_timer.stop();
-    float kernel_dur_msecs = gpu_timer.elapsed_msecs() / repeat_iter;
-    float MFlop_count = (float)nnz / 1e6 * K * 2;
-    float gflops = MFlop_count / kernel_dur_msecs;
-    printf(
-        "[Sputnik] Report: sddmm (A(%d x %d) * B^T(%d x %d)) odot S(%d x %d) "
-        "sparsity "
-        "%f (nnz=%d) \n Time %f (ms), Throughput %f (gflops).\n",
-        M, K, N, K, M, N, (float)nnz / (float)M / (float)N, nnz, kernel_dur_msecs, gflops);
+  gpu_timer.stop();
+  float kernel_dur_msecs = gpu_timer.elapsed_msecs() / repeat_iter;
+  float MFlop_count = (float)nnz / 1e6 * K * 2;
+  float gflops = MFlop_count / kernel_dur_msecs;
+  printf(
+      "[Sputnik] Report: sddmm (A(%d x %d) * B^T(%d x %d)) odot S(%d x %d) "
+      "sparsity "
+      "%f (nnz=%d) \n Time %f (ms), Throughput %f (gflops).\n",
+      M, K, N, K, M, N, (float)nnz / (float)M / (float)N, nnz, kernel_dur_msecs, gflops);
 
   /// free memory
 
