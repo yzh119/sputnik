@@ -158,17 +158,13 @@ int main(int argc, char *argv[]) {
   int N;                               // number of S-columns
   int nnz;                             // number of non-zeros in S
   std::vector<int> csr_indptr_buffer;  // buffer for indptr array in CSR format
-  std::vector<int> row_buffer;
+  std::vector<int> row_indices_buffer;
   std::vector<int> csr_indices_buffer;  // buffer for indices (column-ids) array in CSR format
   // load sparse matrix from mtx file
   // read_mtx_file(argv[1], M, N, nnz, csr_indptr_buffer, csr_indices_buffer);
   read_npz_file(argv[1], M, N, nnz, csr_indptr_buffer, csr_indices_buffer);
-  int row = 0;
-  for (int i = 0; i < csr_indptr_buffer.size() - 1; ++i) {
-    for (int j = 0; j < csr_indptr_buffer[i + 1] - csr_indptr_buffer[i]; ++j) {
-      row_buffer.push_back(row);
-    }
-    row++;
+  for (int i = 0; i < M; ++i) {
+    row_indices_buffer.push_back(i);
   }
 
   printf(
@@ -185,7 +181,7 @@ int main(int argc, char *argv[]) {
 
   float *A_h = NULL, *B_h = NULL, *C_h = NULL, *csr_values_h = NULL, *C_ref = NULL;
   float *A_d = NULL, *B_d = NULL, *C_d = NULL, *csr_values_d = NULL;
-  int *csr_indptr_d = NULL, *csr_indices_d = NULL, *row_d = NULL;
+  int *csr_indptr_d = NULL, *csr_indices_d = NULL, *row_indices_d = NULL;
   A_h = (float *)malloc(sizeof(float) * M * K);
   B_h = (float *)malloc(sizeof(float) * N * K);
   C_h = (float *)malloc(sizeof(float) * nnz);
@@ -207,7 +203,7 @@ int main(int argc, char *argv[]) {
   CUDA_CHECK(cudaMalloc((void **)&C_d, sizeof(float) * nnz));
   CUDA_CHECK(cudaMalloc((void **)&csr_values_d, sizeof(float) * nnz));
   CUDA_CHECK(cudaMalloc((void **)&csr_indptr_d, sizeof(int) * (M + 1)));
-  CUDA_CHECK(cudaMalloc((void **)&row_d, sizeof(int) * nnz));
+  CUDA_CHECK(cudaMalloc((void **)&row_indices_d, sizeof(int) * M));
   CUDA_CHECK(cudaMalloc((void **)&csr_indices_d, sizeof(int) * nnz));
 
   CUDA_CHECK(cudaMemcpy(A_d, A_h, sizeof(float) * M * K, cudaMemcpyHostToDevice));
@@ -216,12 +212,14 @@ int main(int argc, char *argv[]) {
   CUDA_CHECK(cudaMemcpy(csr_values_d, csr_values_h, sizeof(float) * nnz, cudaMemcpyHostToDevice));
   CUDA_CHECK(cudaMemcpy(csr_indptr_d, csr_indptr_buffer.data(), sizeof(int) * (M + 1),
                         cudaMemcpyHostToDevice));
-  CUDA_CHECK(cudaMemcpy(row_d, row_buffer.data(), sizeof(int) * nnz, cudaMemcpyHostToDevice));
+  CUDA_CHECK(cudaMemcpy(row_indices_d, row_indices_buffer.data(), sizeof(int) * nnz,
+                        cudaMemcpyHostToDevice));
   CUDA_CHECK(cudaMemcpy(csr_indices_d, csr_indices_buffer.data(), sizeof(int) * nnz,
                         cudaMemcpyHostToDevice));
 
   // check result
-  CUDA_CALL(sputnik::CudaSddmm(M, K, N, nnz, row_d, csr_indptr_d, csr_indices_d, A_d, B_d, C_d, 0));
+  CUDA_CALL(sputnik::CudaSddmm(M, K, N, nnz, row_indices_d, csr_indptr_d, csr_indices_d, A_d, B_d,
+                               C_d, 0));
   CUDA_CHECK(cudaMemcpy(csr_values_h, csr_values_d, nnz * sizeof(float), cudaMemcpyDeviceToHost));
   sddmm_reference_host<int, float>(M, N, K, nnz, csr_indptr_buffer.data(),
                                    csr_indices_buffer.data(), csr_values_h, A_h, B_h, C_ref);
@@ -235,8 +233,8 @@ int main(int argc, char *argv[]) {
     if (iter == warmup_iter) {
       gpu_timer.start();
     }
-    CUDA_CALL(
-        sputnik::CudaSddmm(M, K, N, nnz, row_d, csr_indptr_d, csr_indices_d, A_d, B_d, C_d, 0));
+    CUDA_CALL(sputnik::CudaSddmm(M, K, N, nnz, row_indices_d, csr_indptr_d, csr_indices_d, A_d, B_d,
+                                 C_d, 0));
   }
   gpu_timer.stop();
   float kernel_dur_msecs = gpu_timer.elapsed_msecs() / repeat_iter;
@@ -259,7 +257,7 @@ int main(int argc, char *argv[]) {
   if (B_d) CUDA_CHECK(cudaFree(B_d));
   if (C_d) CUDA_CHECK(cudaFree(C_d));
   if (csr_values_d) CUDA_CHECK(cudaFree(csr_values_d));
-  if (row_d) CUDA_CHECK(cudaFree(row_d));
+  if (row_indices_d) CUDA_CHECK(cudaFree(row_indices_d));
   if (csr_indptr_d) CUDA_CHECK(cudaFree(csr_indptr_d));
   if (csr_indices_d) CUDA_CHECK(cudaFree(csr_indices_d));
 
