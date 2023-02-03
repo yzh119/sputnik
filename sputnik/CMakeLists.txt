@@ -128,9 +128,9 @@ if (BUILD_BENCHMARK)
   list(FILTER SPUTNIK_SPMM_BENCHMARK_CUDA_SRCS INCLUDE REGEX "\.cu\.cc")
   set_source_files_properties(${SPUTNIK_SPMM_BENCHMARK_CUDA_SRCS} PROPERTIES LANGUAGE CUDA)  
 
-  add_executable(spmm_benchmark ${SPUTNIK_SPMM_BENCHMARK_SRCS})
-  target_include_directories(spmm_benchmark PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../third_party/cnpy)
-  target_link_libraries(spmm_benchmark sputnik ${SPUTNIK_BENCHMARK_LIBS} cnpy)
+  add_executable(sputnik_spmm_benchmark ${SPUTNIK_SPMM_BENCHMARK_SRCS})
+  target_include_directories(sputnik_spmm_benchmark PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../third_party/cnpy)
+  target_link_libraries(sputnik_spmm_benchmark sputnik ${SPUTNIK_BENCHMARK_LIBS} cnpy)
   install(TARGETS sputnik_spmm_benchmark)
 
   # SDDMM benchmark build.
@@ -140,9 +140,9 @@ if (BUILD_BENCHMARK)
   list(FILTER SPUTNIK_SDDMM_BENCHMARK_CUDA_SRCS INCLUDE REGEX "\.cu\.cc")
   set_source_files_properties(${SPUTNIK_SDDMM_BENCHMARK_CUDA_SRCS} PROPERTIES LANGUAGE CUDA)  
 
-  add_executable(sddmm_benchmark ${SPUTNIK_SDDMM_BENCHMARK_SRCS})
-  target_include_directories(sddmm_benchmark PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../third_party/cnpy)
-  target_link_libraries(sddmm_benchmark sputnik ${SPUTNIK_BENCHMARK_LIBS} cnpy)
+  add_executable(sputnik_sddmm_benchmark ${SPUTNIK_SDDMM_BENCHMARK_SRCS})
+  target_include_directories(sputnik_sddmm_benchmark PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../third_party/cnpy)
+  target_link_libraries(sputnik_sddmm_benchmark sputnik ${SPUTNIK_BENCHMARK_LIBS} cnpy)
   install(TARGETS sputnik_sddmm_benchmark)
 
   # Depthwise benchmark build.
