@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include "cnpy.h"
+#include "../benchmark_utils.h"
 #include <cuda_runtime_api.h>
 
 #include <cmath>
@@ -24,55 +24,6 @@
 #include "sputnik/spmm/spmm_config.h"
 #include "sputnik/test_utils.h"
 
-#define CUDA_CHECK(func)                                                   \
-  {                                                                        \
-    cudaError_t status = (func);                                           \
-    if (status != cudaSuccess) {                                           \
-      printf("CUDA API failed at line %d with error: %s (%d)\n", __LINE__, \
-             cudaGetErrorString(status), status);                          \
-      return EXIT_FAILURE;                                                 \
-    }                                                                      \
-  }
-
-void read_npz_file(const std::string &filename, int &M, int &K, int &NNZ, std::vector<int> &indptr,
-                   std::vector<int> &indices) {
-  cnpy::npz_t data = cnpy::npz_load(filename);
-  cnpy::NpyArray shape = data["shape"];
-  int *shape_data = shape.data<int>();
-  M = shape_data[0];
-  K = shape_data[1];
-  NNZ = shape_data[2];
-  indptr = std::move(data["indptr"].as_vec<int>());
-  indices = std::move(data["indices"].as_vec<int>());
-}
-
-struct GpuTimer {
-  cudaEvent_t startEvent;
-  cudaEvent_t stopEvent;
-
-  GpuTimer() {
-    cudaEventCreate(&startEvent);
-    cudaEventCreate(&stopEvent);
-  }
-
-  ~GpuTimer() {
-    cudaEventDestroy(startEvent);
-    cudaEventDestroy(stopEvent);
-  }
-
-  void start() { cudaEventRecord(startEvent, 0); }
-
-  void stop() {
-    cudaEventRecord(stopEvent, 0);
-    cudaEventSynchronize(stopEvent);
-  }
-
-  float elapsed_msecs() {
-    float elapsed;
-    cudaEventElapsedTime(&elapsed, startEvent, stopEvent);
-    return elapsed;
-  }
-};
 
 // Fill a host array with all 0
 template <typename DType>
@@ -209,18 +160,37 @@ int main(int argc, const char **argv) {
   bool correct = check_result<float>(M, N, C_h, C_ref);
 
   // benchmark
+  char *env_flush_l2 = std::getenv("FLUSH_L2");
+  bool flush_l2 = env_flush_l2 ? std::strcmp(env_flush_l2, "ON") == 0 : false;
   GpuTimer gpu_timer;
   int warmup_iter = 10;
   int repeat_iter = 100;
-  for (int iter = 0; iter < warmup_iter + repeat_iter; iter++) {
-    if (iter == warmup_iter) {
-      gpu_timer.start();
+  float kernel_dur_msecs = 0;
+  if (flush_l2) {
+    for (int iter = 0; iter < warmup_iter + repeat_iter; iter++) {
+      if (iter >= warmup_iter) {
+        gpu_timer.start(true);
+      }
+      CUDA_CHECK(sputnik::CudaSpmm(M, K, N, nnz, row_indices_d, csr_values_d, csr_indptr_d,
+                                  csr_indices_d, B_d, C_d, 0));
+
+      if (iter >= warmup_iter) {
+        gpu_timer.stop();
+      }
+      kernel_dur_msecs += gpu_timer.elapsed_msecs();
     }
-    CUDA_CHECK(sputnik::CudaSpmm(M, K, N, nnz, row_indices_d, csr_values_d, csr_indptr_d,
-                                 csr_indices_d, B_d, C_d, 0));
+    kernel_dur_msecs /= repeat_iter;
+  } else {
+    for (int iter = 0; iter < warmup_iter + repeat_iter; iter++) {
+      if (iter == warmup_iter) {
+        gpu_timer.start(false);
+      }
+      CUDA_CHECK(sputnik::CudaSpmm(M, K, N, nnz, row_indices_d, csr_values_d, csr_indptr_d,
+                                  csr_indices_d, B_d, C_d, 0));
+    }
+    gpu_timer.stop();
+    kernel_dur_msecs = gpu_timer.elapsed_msecs() / repeat_iter;
   }
-  gpu_timer.stop();
-  float kernel_dur_msecs = gpu_timer.elapsed_msecs() / repeat_iter;
   float MFlop_count = (float)nnz / 1e6 * N * 2;
   float gflops = MFlop_count / kernel_dur_msecs;
   printf(
