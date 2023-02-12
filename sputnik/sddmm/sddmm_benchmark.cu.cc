@@ -175,8 +175,8 @@ int main(int argc, char *argv[]) {
                                   C_d, 0));
       if (iter >= warmup_iter) {
         gpu_timer.stop();
+        kernel_dur_msecs += gpu_timer.elapsed_msecs();
       }
-      kernel_dur_msecs += gpu_timer.elapsed_msecs();
     }
     kernel_dur_msecs /= repeat_iter;
   } else {
